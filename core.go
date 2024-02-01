@@ -27,18 +27,23 @@ var filename string = "userdata.csv"
 func (task Task) addTask() (Task, error) {
 	tasks, _ := TaskList{}.getTasks()
 	var new_id int
-	if len(tasks) > 0 {
-		id := tasks[len(tasks)-1].id
-		new_id = id + 1
-	} else {
-		new_id = 0
-	}
 	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Println(err)
 		return Task{}, err
 	}
 	defer f.Close()
+	reader := csv.NewReader(f)
+	records, err := reader.ReadAll()
+	if len(records) < 1 {
+		_writeHeadingToFile(f)
+	}
+	if len(tasks) > 0 {
+		id := tasks[len(tasks)-1].id
+		new_id = id + 1
+	} else {
+		new_id = 0
+	}
 	// Append to file
 	csvWriter := csv.NewWriter(f)
 	csvWriter.Write([]string{
@@ -121,24 +126,28 @@ func (tasklist TaskList) getTasks() (TaskList, error) {
 	defer f.Close()
 	reader := csv.NewReader(f)
 	records, err := reader.ReadAll()
-	// Omit first line
-	records = records[1:]
-	// Convert to Task
-	var tasks []Task
-	for _, record := range records {
-		id, _ := strconv.Atoi(record[0])
-		dateDue, _ := strconv.ParseInt(record[2], 10, 64)
-		dateCreated, _ := strconv.ParseInt(record[3], 10, 64)
-		dateCompleted, _ := strconv.ParseInt(record[4], 10, 64)
-		tasks = append(tasks, Task{
-			id:            id,
-			text:          record[1],
-			dateDue:       dateDue,
-			dateCreated:   dateCreated,
-			dateCompleted: dateCompleted,
-		})
+	if len(records) > 1 {
+		// Omit first line
+		records = records[1:]
+		// Convert to Task
+		var tasks []Task
+		for _, record := range records {
+			id, _ := strconv.Atoi(record[0])
+			dateDue, _ := strconv.ParseInt(record[2], 10, 64)
+			dateCreated, _ := strconv.ParseInt(record[3], 10, 64)
+			dateCompleted, _ := strconv.ParseInt(record[4], 10, 64)
+			tasks = append(tasks, Task{
+				id:            id,
+				text:          record[1],
+				dateDue:       dateDue,
+				dateCreated:   dateCreated,
+				dateCompleted: dateCompleted,
+			})
+		}
+		return tasks, err
+	} else {
+		return []Task{}, err
 	}
-	return tasks, err
 }
 
 func _writeHeadingToFile(f *os.File) {
