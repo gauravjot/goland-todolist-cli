@@ -16,114 +16,132 @@ type Task struct {
 	dateCompleted int64
 }
 
-func writeTaskToFile(isNew bool, task Task) (Task, error) {
-	// Open file
-	f, err := os.OpenFile("userdata.csv", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+type TaskList []Task
+
+var filename string = "userdata.csv"
+
+/**
+ * Task methods
+ */
+
+func (task Task) addTask() (Task, error) {
+	tasks, _ := TaskList{}.getTasks()
+	var new_id int
+	if len(tasks) > 0 {
+		id := tasks[len(tasks)-1].id
+		new_id = id + 1
+	} else {
+		new_id = 0
+	}
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Println(err)
 		return Task{}, err
 	}
 	defer f.Close()
+	// Append to file
+	csvWriter := csv.NewWriter(f)
+	csvWriter.Write([]string{
+		strconv.Itoa(new_id),
+		strings.TrimSpace(task.text),
+		strconv.FormatInt(task.dateDue, 10),
+		strconv.FormatInt(task.dateCreated, 10),
+		strconv.FormatInt(task.dateCompleted, 10),
+	})
+	csvWriter.Flush()
 
-	lines, err := readCSVRecords(f)
-	if err != nil {
-		fmt.Println(err)
-		return Task{}, err
-	}
-	if len(lines) == 0 {
-		writeHeadingToFile(f)
-	}
-	if isNew {
-		// If it is new task, read last line for id
-		var new_id int
-		if len(lines) > 0 {
-			id, _ := strconv.Atoi(lines[len(lines)-1][0])
-			new_id = id + 1
-		} else {
-			new_id = 0
+	return Task{
+		id:            new_id,
+		text:          strings.TrimSpace(task.text),
+		dateDue:       task.dateDue,
+		dateCreated:   task.dateCreated,
+		dateCompleted: task.dateCompleted,
+	}, nil
+}
+
+func (alteredTask Task) editTask() (Task, error) {
+	allTasks, _ := TaskList{}.getTasks()
+	os.Remove(filename)
+	file, _ := os.Create(filename)
+	csvWriter := csv.NewWriter(file)
+	_writeHeadingToFile(file)
+	for _, task := range allTasks {
+		newText := task.text
+		if task.id == alteredTask.id {
+			newText = strings.TrimSpace(alteredTask.text)
 		}
-		// Append to file
-		csvWriter := csv.NewWriter(f)
 		csvWriter.Write([]string{
-			strconv.Itoa(new_id),
-			strings.TrimSpace(task.text),
+			strconv.Itoa(task.id),
+			newText,
 			strconv.FormatInt(task.dateDue, 10),
 			strconv.FormatInt(task.dateCreated, 10),
 			strconv.FormatInt(task.dateCompleted, 10),
 		})
 		csvWriter.Flush()
-
-		return Task{
-			id:            new_id,
-			text:          strings.TrimSpace(task.text),
-			dateDue:       task.dateDue,
-			dateCreated:   task.dateCreated,
-			dateCompleted: task.dateCompleted,
-		}, nil
-	} else {
-		// If we are updating a task, read all lines and update the line with the id
-		var isFound bool
-		for i, line := range lines {
-			if line[0] == strconv.Itoa(int(task.id)) {
-				lines[i][1] = strings.TrimSpace(task.text)
-				lines[i][2] = strconv.FormatInt(task.dateDue, 10)
-				isFound = true
-				break
-			}
-		}
-		if !isFound {
-			return Task{}, fmt.Errorf("Task with id %d not found", task.id)
-		}
-
-		// Write to file
-		os.Remove("userdata.csv")
-		f, _ := os.Create("userdata.csv")
-		csvWriter := csv.NewWriter(f)
-		csvWriter.WriteAll(lines)
-
-		return task, nil
 	}
+
+	return alteredTask, nil
 }
 
-func deleteTaskFromFile(id int) error {
-	f, err := os.OpenFile("userdata.csv", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+func (taskToDelete Task) deleteTask() error {
+	allTasks, err := TaskList{}.getTasks()
 	if err != nil {
 		fmt.Println(err)
 		return err
-	}
-	defer f.Close()
-	lines, err := readCSVRecords(f)
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-	var isFound bool
-	for i, line := range lines {
-		if line[0] == strconv.Itoa(int(id)) {
-			lines = append(lines[:i], lines[i+1:]...)
-			isFound = true
-			break
-		}
 	}
 	// Write to file
-	if !isFound {
-		return fmt.Errorf("Task with id %d not found", id)
-	}
-
-	os.Remove("userdata.csv")
-	file, _ := os.Create("userdata.csv")
+	os.Remove(filename)
+	file, _ := os.Create(filename)
 	csvWriter := csv.NewWriter(file)
-	csvWriter.WriteAll(lines)
+	_writeHeadingToFile(file)
+	for _, task := range allTasks {
+		if task.id != taskToDelete.id {
+			csvWriter.Write([]string{
+				strconv.Itoa(task.id),
+				task.text,
+				strconv.FormatInt(task.dateDue, 10),
+				strconv.FormatInt(task.dateCreated, 10),
+				strconv.FormatInt(task.dateCompleted, 10),
+			})
+		}
+	}
 	return nil
 }
 
-func readCSVRecords(file *os.File) ([][]string, error) {
-	reader := csv.NewReader(file)
+/**
+ * TaskList methods
+ */
+
+func (tasklist TaskList) getTasks() (TaskList, error) {
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Println(err)
+		return []Task{}, err
+	}
+	defer f.Close()
+	reader := csv.NewReader(f)
 	records, err := reader.ReadAll()
-	return records, err
+	// Omit first line
+	records = records[1:]
+	// Convert to Task
+	var tasks []Task
+	for _, record := range records {
+		id, _ := strconv.Atoi(record[0])
+		dateDue, _ := strconv.ParseInt(record[2], 10, 64)
+		dateCreated, _ := strconv.ParseInt(record[3], 10, 64)
+		dateCompleted, _ := strconv.ParseInt(record[4], 10, 64)
+		tasks = append(tasks, Task{
+			id:            id,
+			text:          record[1],
+			dateDue:       dateDue,
+			dateCreated:   dateCreated,
+			dateCompleted: dateCompleted,
+		})
+	}
+	return tasks, err
 }
 
-func writeHeadingToFile(f *os.File) {
+func _writeHeadingToFile(f *os.File) {
 	csvWriter := csv.NewWriter(f)
 	csvWriter.Write([]string{"id", "text", "dateDue", "dateCreated", "dateCompleted"})
 	csvWriter.Flush()
